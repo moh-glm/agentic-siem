@@ -11,14 +11,15 @@ from sklearn.metrics import (
 )
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_model(model, X_test, y_test, predictions=None):
     """
     Evaluate a trained binary classification model.
 
     Class 1 represents an attack.
     """
 
-    predictions = model.predict(X_test)
+    if predictions is None:
+        predictions = model.predict(X_test)
 
     results = {
         "accuracy": accuracy_score(y_test, predictions),

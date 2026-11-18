@@ -1,0 +1,70 @@
+{
+    "dataset": "UNSW-NB15",
+    "sample_size": 500000,
+    "split": {
+        "training": 350000,
+        "validation": 75000,
+        "testing": 75000
+    },
+    "models": [
+        {
+            "model_name": "Gaussian Naive Bayes",
+            "training_time_seconds": 1.64444364100018,
+            "prediction_time_seconds": 0.19672721899951284,
+            "validation_metrics": {
+                "accuracy": 0.8191733333333333,
+                "precision": 0.401546267214303,
+                "recall": 0.8759354906714452,
+                "f1_score": 0.5506593333775097,
+                "confusion_matrix": [
+                    [
+                        53128,
+                        12385
+                    ],
+                    [
+                        1177,
+                        8310
+                    ]
+                ]
+            }
+        },
+        {
+            "model_name": "Logistic Regression",
+            "training_time_seconds": 5.076568956999836,
+            "prediction_time_seconds": 0.12537867299943173,
+            "validation_metrics": {
+                "accuracy": 0.9884933333333333,
+                "precision": 0.9171019539562778,
+                "recall": 0.9993675556024033,
+                "f1_score": 0.956469104665826,
+                "confusion_matrix": [
+                    [
+                        64656,
+                        857
+                    ],
+                    [
+                        6,
+                        9481
+                    ]
+                ]
+            }
+        }
+    ],
+    "best_model": "Logistic Regression",
+    "test_metrics": {
+        "accuracy": 0.9886266666666667,
+        "precision": 0.9186305886916885,
+        "recall": 0.9985241408391313,
+        "f1_score": 0.956912663534879,
+        "confusion_matrix": [
+            [
+                64675,
+                839
+            ],
+            [
+                14,
+                9472
+            ]
+        ]
+    }
+}

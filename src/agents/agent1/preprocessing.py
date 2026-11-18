@@ -1,3 +1,4 @@
+
 """
 Preprocessing pipelines for Agent 1.
 
@@ -8,7 +9,7 @@ for Gaussian Naive Bayes and Logistic Regression.
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
 
 from src.data.preprocess import (
     CATEGORICAL_COLUMNS,
@@ -26,27 +27,40 @@ def get_numerical_columns():
     ]
 
 
-def build_preprocessor(scale_numerical: bool = True):
-    """
-    Build a preprocessing pipeline.
+def clean_numerical_values(X):
+    """Convert whitespace-only numerical values to NaN."""
 
-    Numerical features:
-        - Median imputation
-        - Optional standard scaling
+    import numpy as np
+    import pandas as pd
 
-    Categorical features:
-        - Most frequent value imputation
-        - One-hot encoding
-    """
+    X = pd.DataFrame(X).copy()
+    X = X.replace(r"^\s*$", np.nan, regex=True)
+
+    for column in X.columns:
+        X[column] = pd.to_numeric(X[column], errors="coerce")
+
+    return X.to_numpy(dtype=float)
+
+
+def build_preprocessor(
+    scale_numerical: bool = True,
+    dense_output: bool = False,
+):
+    """Build numerical and categorical preprocessing pipelines."""
 
     numerical_steps = [
+        (
+            "cleaner",
+            FunctionTransformer(
+                clean_numerical_values,
+                feature_names_out="one-to-one",
+            ),
+        ),
         ("imputer", SimpleImputer(strategy="median")),
     ]
 
     if scale_numerical:
-        numerical_steps.append(
-            ("scaler", StandardScaler())
-        )
+        numerical_steps.append(("scaler", StandardScaler()))
 
     numerical_pipeline = Pipeline(numerical_steps)
 
@@ -60,10 +74,10 @@ def build_preprocessor(scale_numerical: bool = True):
         ),
         (
             "encoder",
-            OneHotEncoder(
-                handle_unknown="ignore",
-                sparse_output=True,
-            ),
+OneHotEncoder(
+    handle_unknown="ignore",
+    sparse_output=not dense_output,
+),
         ),
     ])
 
@@ -81,4 +95,7 @@ def build_preprocessor(scale_numerical: bool = True):
             ),
         ],
         remainder="drop",
+sparse_threshold=0 if dense_output else 0.3,
     )
+
+

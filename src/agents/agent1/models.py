@@ -20,7 +20,10 @@ def build_naive_bayes_model():
     return Pipeline([
         (
             "preprocessor",
-            build_preprocessor(scale_numerical=False),
+            build_preprocessor(
+    scale_numerical=False,
+    dense_output=True,
+),
         ),
         (
             "classifier",
