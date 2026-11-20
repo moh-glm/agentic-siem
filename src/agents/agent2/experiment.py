@@ -2,9 +2,15 @@
 Real-data experiments for Agent 2 (RNN & LSTM Sequence Analysis).
 
 Trains and evaluates SequenceRNN and SequenceLSTM on chronological
-sliding-window sequences extracted across all four UNSW-NB15 files.
+sliding-window sequences built independently per UNSW-NB15 CSV file
+(preventing cross-file sliding windows).
+
+Sequence-Labeling Rule:
+    A sequence window is labeled as an attack (1) if at least one flow inside
+    the window has Label == 1; otherwise normal (0).
 """
 
+import copy
 import json
 import time
 from pathlib import Path
@@ -13,12 +19,13 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.agents.agent1.evaluation import evaluate_model
 from src.agents.agent1.preprocessing import build_preprocessor
 from src.agents.agent2.models import build_rnn_model
-from src.agents.agent2.sequence_builder import create_sequences, sort_by_time
+from src.agents.agent2.sequence_builder import create_sequences_per_file, sort_by_time
 from src.data.dataset_loader import COLUMNS, DATA_DIR, FILES
 from src.data.preprocess import preprocess_dataset
 
@@ -50,11 +57,12 @@ def prepare_sequence_data(
     stride: int = STRIDE,
 ):
     """
-    Load contiguous chronological blocks across all four UNSW-NB15 files,
-    split temporally (70/15/15), preprocess features, and build sequences.
+    Load contiguous chronological blocks per UNSW-NB15 file, split temporally
+    (70/15/15) within each file, preprocess features, and generate sequences
+    independently per file before concatenating.
     """
     print("=" * 60)
-    print("AGENT 2 — CHRONOLOGICAL SEQUENCE DATA PREPARATION")
+    print("AGENT 2 — PER-FILE CHRONOLOGICAL SEQUENCE PREPARATION")
     print("=" * 60)
 
     start_time = time.perf_counter()
@@ -65,7 +73,7 @@ def prepare_sequence_data(
         if not fpath.exists():
             raise FileNotFoundError(f"Dataset file not found: {fpath}")
 
-        print(f"Loading contiguous block from {fname}...")
+        print(f"Loading and sorting chronological block from {fname}...")
         df_part = pd.read_csv(
             fpath, header=None, names=COLUMNS, nrows=per_file_sample, low_memory=False
         )
@@ -75,27 +83,32 @@ def prepare_sequence_data(
         n = len(df_part)
         t_end = int(n * 0.70)
         v_end = int(n * 0.85)
-        train_dfs.append(df_part.iloc[:t_end])
-        val_dfs.append(df_part.iloc[t_end:v_end])
-        test_dfs.append(df_part.iloc[v_end:])
+        train_dfs.append(df_part.iloc[:t_end].reset_index(drop=True))
+        val_dfs.append(df_part.iloc[t_end:v_end].reset_index(drop=True))
+        test_dfs.append(df_part.iloc[v_end:].reset_index(drop=True))
 
-    df_train = pd.concat(train_dfs, ignore_index=True)
-    df_val = pd.concat(val_dfs, ignore_index=True)
-    df_test = pd.concat(test_dfs, ignore_index=True)
-
+    # Fit preprocessor on combined training data without mixing file order
     preprocessor = build_preprocessor(scale_numerical=True, dense_output=True)
-    X_train_2d = preprocessor.fit_transform(df_train)
-    X_val_2d = preprocessor.transform(df_val)
-    X_test_2d = preprocessor.transform(df_test)
+    preprocessor.fit(pd.concat(train_dfs, ignore_index=True))
 
-    X_train_seq, y_train_seq = create_sequences(
-        X_train_2d, df_train["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
+    X_train_list = [preprocessor.transform(df) for df in train_dfs]
+    y_train_list = [df["Label"].to_numpy() for df in train_dfs]
+
+    X_val_list = [preprocessor.transform(df) for df in val_dfs]
+    y_val_list = [df["Label"].to_numpy() for df in val_dfs]
+
+    X_test_list = [preprocessor.transform(df) for df in test_dfs]
+    y_test_list = [df["Label"].to_numpy() for df in test_dfs]
+
+    # Build sliding windows independently per file, then concatenate
+    X_train_seq, y_train_seq = create_sequences_per_file(
+        X_train_list, y_train_list, sequence_length=sequence_length, stride=stride
     )
-    X_val_seq, y_val_seq = create_sequences(
-        X_val_2d, df_val["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
+    X_val_seq, y_val_seq = create_sequences_per_file(
+        X_val_list, y_val_list, sequence_length=sequence_length, stride=stride
     )
-    X_test_seq, y_test_seq = create_sequences(
-        X_test_2d, df_test["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
+    X_test_seq, y_test_seq = create_sequences_per_file(
+        X_test_list, y_test_list, sequence_length=sequence_length, stride=stride
     )
 
     elapsed = time.perf_counter() - start_time
@@ -112,6 +125,39 @@ def prepare_sequence_data(
         X_test_seq,
         y_test_seq,
     )
+
+
+def evaluate_epoch_validation(
+    model: nn.Module,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    criterion: nn.Module,
+    device: torch.device,
+) -> tuple[float, float, np.ndarray]:
+    """Compute validation loss, validation F1-score, and binary predictions."""
+    model.eval()
+    val_dataset = TensorDataset(
+        torch.from_numpy(X_val),
+        torch.from_numpy(y_val).float(),
+    )
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE * 2, shuffle=False)
+
+    total_loss = 0.0
+    preds = []
+
+    with torch.no_grad():
+        for batch_x, batch_y in val_loader:
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            logits = model(batch_x)
+            loss = criterion(logits, batch_y)
+            total_loss += loss.item() * len(batch_x)
+            probs = torch.sigmoid(logits)
+            preds.append((probs >= 0.5).long().cpu().numpy())
+
+    avg_val_loss = total_loss / len(val_dataset)
+    val_preds = np.concatenate(preds, axis=0)
+    val_f1 = float(f1_score(y_val, val_preds, zero_division=0))
+    return avg_val_loss, val_f1, val_preds
 
 
 def predict_sequences(model: nn.Module, X_seq: np.ndarray, device: torch.device) -> np.ndarray:
@@ -140,7 +186,10 @@ def train_and_evaluate_sequence_model(
     device: torch.device,
     epochs: int = EPOCHS,
 ) -> dict:
-    """Train one PyTorch sequence model and evaluate on validation sequences."""
+    """
+    Train one PyTorch sequence model, track validation loss and validation F1
+    after every epoch, and restore the best checkpoint based on validation F1.
+    """
     print("\n" + "=" * 60)
     print(f"MODEL: {model_name} (device={device})")
     print("=" * 60)
@@ -157,9 +206,14 @@ def train_and_evaluate_sequence_model(
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+    best_val_f1 = -1.0
+    best_epoch = 0
+    best_state_dict = copy.deepcopy(model.state_dict())
+    epoch_history = []
+
     training_start = time.perf_counter()
-    model.train()
     for epoch in range(1, epochs + 1):
+        model.train()
         epoch_loss = 0.0
         for batch_x, batch_y in train_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -170,25 +224,53 @@ def train_and_evaluate_sequence_model(
             optimizer.step()
             epoch_loss += loss.item() * len(batch_x)
 
-        avg_loss = epoch_loss / len(train_dataset)
-        print(f"Epoch {epoch:02d}/{epochs} - Loss: {avg_loss:.4f}")
+        avg_train_loss = epoch_loss / len(train_dataset)
+        val_loss, val_f1, _ = evaluate_epoch_validation(
+            model, X_val, y_val, criterion, device
+        )
+
+        is_best = val_f1 > best_val_f1
+        if is_best:
+            best_val_f1 = val_f1
+            best_epoch = epoch
+            best_state_dict = copy.deepcopy(model.state_dict())
+
+        epoch_history.append(
+            {
+                "epoch": epoch,
+                "train_loss": round(avg_train_loss, 6),
+                "val_loss": round(val_loss, 6),
+                "val_f1": round(val_f1, 6),
+            }
+        )
+        marker = " * (best)" if is_best else ""
+        print(
+            f"Epoch {epoch:02d}/{epochs} - Train Loss: {avg_train_loss:.4f} "
+            f"- Val Loss: {val_loss:.4f} - Val F1: {val_f1:.4f}{marker}"
+        )
 
     training_time = time.perf_counter() - training_start
+
+    # Restore best checkpoint based on validation F1
+    model.load_state_dict(best_state_dict)
+    print(f"Restored best {model_name} checkpoint from epoch {best_epoch} (Val F1={best_val_f1:.4f})")
 
     prediction_start = time.perf_counter()
     val_predictions = predict_sequences(model, X_val, device)
     prediction_time = time.perf_counter() - prediction_start
 
     metrics = evaluate_model(model=None, X_test=None, y_test=y_val, predictions=val_predictions)
-    print("\nValidation metrics:")
+    print("\nBest Checkpoint Validation Metrics:")
     for metric, value in metrics.items():
         print(f"{metric}: {value}")
 
     return {
         "model_name": model_name,
         "model_type": model_type,
+        "best_epoch": best_epoch,
         "training_time_seconds": round(training_time, 4),
         "prediction_time_seconds": round(prediction_time, 4),
+        "epoch_history": epoch_history,
         "metrics": metrics,
         "model": model,
     }
@@ -251,7 +333,12 @@ def run_experiments(
         {
             "model_type": best_model["model_type"],
             "input_size": int(X_train.shape[2]),
+            "hidden_size": int(best_model["model"].hidden_size),
+            "num_layers": int(best_model["model"].num_layers),
+            "dropout": float(best_model["model"].dropout),
             "sequence_length": SEQUENCE_LENGTH,
+            "threshold": 0.5,
+            "best_epoch": int(best_model["best_epoch"]),
             "state_dict": best_model["model"].state_dict(),
         },
         model_path,
@@ -263,6 +350,8 @@ def run_experiments(
         "sample_size": per_file_sample * len(FILES),
         "sequence_length": SEQUENCE_LENGTH,
         "stride": STRIDE,
+        "sequence_boundary_policy": "per_file_independent_no_cross_file_windows",
+        "sequence_labeling_rule": "attack (1) if at least one flow in window is an attack, else normal (0)",
         "split": {
             "training_sequences": int(len(X_train)),
             "validation_sequences": int(len(X_val)),
@@ -271,8 +360,10 @@ def run_experiments(
         "models": [
             {
                 "model_name": r["model_name"],
+                "best_epoch": r["best_epoch"],
                 "training_time_seconds": r["training_time_seconds"],
                 "prediction_time_seconds": r["prediction_time_seconds"],
+                "epoch_history": r["epoch_history"],
                 "validation_metrics": r["metrics"],
             }
             for r in results
