@@ -97,6 +97,7 @@ def sample_dataset(
             file_path,
             usecols=columns,
             chunksize=chunksize,
+            low_memory=False,
         ):
             for label in (0, 1):
                 target = target_counts[label]

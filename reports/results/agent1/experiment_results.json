@@ -2,49 +2,49 @@
     "dataset": "UNSW-NB15",
     "sample_size": 500000,
     "split": {
-        "training": 350000,
-        "validation": 75000,
-        "testing": 75000
+        "training": 349771,
+        "validation": 75094,
+        "testing": 75135
     },
     "models": [
         {
             "model_name": "Gaussian Naive Bayes",
-            "training_time_seconds": 1.64444364100018,
-            "prediction_time_seconds": 0.19672721899951284,
+            "training_time_seconds": 2.631425894996937,
+            "prediction_time_seconds": 0.21128836600109935,
             "validation_metrics": {
-                "accuracy": 0.8191733333333333,
-                "precision": 0.401546267214303,
-                "recall": 0.8759354906714452,
-                "f1_score": 0.5506593333775097,
+                "accuracy": 0.8221562308573255,
+                "precision": 0.4090355280471758,
+                "recall": 0.8722718769486594,
+                "f1_score": 0.5569158289373279,
                 "confusion_matrix": [
                     [
-                        53128,
-                        12385
+                        53346,
+                        12126
                     ],
                     [
-                        1177,
-                        8310
+                        1229,
+                        8393
                     ]
                 ]
             }
         },
         {
             "model_name": "Logistic Regression",
-            "training_time_seconds": 5.076568956999836,
-            "prediction_time_seconds": 0.12537867299943173,
+            "training_time_seconds": 5.011786020000727,
+            "prediction_time_seconds": 0.13748639200275647,
             "validation_metrics": {
-                "accuracy": 0.9884933333333333,
-                "precision": 0.9171019539562778,
-                "recall": 0.9993675556024033,
-                "f1_score": 0.956469104665826,
+                "accuracy": 0.9884811036833835,
+                "precision": 0.9186346687063773,
+                "recall": 0.998545001039285,
+                "f1_score": 0.9569244559533888,
                 "confusion_matrix": [
                     [
-                        64656,
-                        857
+                        64621,
+                        851
                     ],
                     [
-                        6,
-                        9481
+                        14,
+                        9608
                     ]
                 ]
             }
@@ -52,18 +52,18 @@
     ],
     "best_model": "Logistic Regression",
     "test_metrics": {
-        "accuracy": 0.9886266666666667,
-        "precision": 0.9186305886916885,
-        "recall": 0.9985241408391313,
-        "f1_score": 0.956912663534879,
+        "accuracy": 0.9876488986490983,
+        "precision": 0.9129111998478798,
+        "recall": 0.9987518202621177,
+        "f1_score": 0.9539042320683488,
         "confusion_matrix": [
             [
-                64675,
-                839
+                64605,
+                916
             ],
             [
-                14,
-                9472
+                12,
+                9602
             ]
         ]
     }
