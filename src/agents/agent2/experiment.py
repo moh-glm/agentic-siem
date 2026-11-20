@@ -2,7 +2,7 @@
 Real-data experiments for Agent 2 (RNN & LSTM Sequence Analysis).
 
 Trains and evaluates SequenceRNN and SequenceLSTM on chronological
-sliding-window sequences extracted from UNSW-NB15.
+sliding-window sequences extracted across all four UNSW-NB15 files.
 """
 
 import json
@@ -10,24 +10,24 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.agents.agent1.evaluation import evaluate_model
 from src.agents.agent1.preprocessing import build_preprocessor
-from src.agents.agent1.sampling import sample_dataset
 from src.agents.agent2.models import build_rnn_model
 from src.agents.agent2.sequence_builder import create_sequences, sort_by_time
+from src.data.dataset_loader import COLUMNS, DATA_DIR, FILES
+from src.data.preprocess import preprocess_dataset
 
 
-# Experiment configuration matching Agent 1 scale
-SAMPLE_SIZE = 500_000
-CHUNKSIZE = 100_000
+PER_FILE_SAMPLE = 125_000  # 125,000 x 4 files = 500,000 records
 SEQUENCE_LENGTH = 10
 STRIDE = 5
-BATCH_SIZE = 256
-EPOCHS = 8
+BATCH_SIZE = 512
+EPOCHS = 12
 LEARNING_RATE = 1e-3
 RANDOM_STATE = 42
 
@@ -44,47 +44,58 @@ def set_seed(seed: int = RANDOM_STATE) -> None:
 
 
 def prepare_sequence_data(
-    sample_size: int = SAMPLE_SIZE,
+    raw_dir: Path = DATA_DIR,
+    per_file_sample: int = PER_FILE_SAMPLE,
     sequence_length: int = SEQUENCE_LENGTH,
     stride: int = STRIDE,
 ):
     """
-    Load UNSW-NB15 sample, sort chronologically, preprocess features,
-    and build train/validation/test sequence datasets.
+    Load contiguous chronological blocks across all four UNSW-NB15 files,
+    split temporally (70/15/15), preprocess features, and build sequences.
     """
     print("=" * 60)
     print("AGENT 2 — CHRONOLOGICAL SEQUENCE DATA PREPARATION")
     print("=" * 60)
 
     start_time = time.perf_counter()
-    df = sample_dataset(sample_size=sample_size, chunksize=CHUNKSIZE)
-    df = sort_by_time(df, time_col="Stime")
+    train_dfs, val_dfs, test_dfs = [], [], []
 
-    n_total = len(df)
-    train_end = int(n_total * 0.70)
-    val_end = int(n_total * 0.85)
+    for fname in FILES:
+        fpath = raw_dir / fname
+        if not fpath.exists():
+            raise FileNotFoundError(f"Dataset file not found: {fpath}")
 
-    df_train = df.iloc[:train_end].reset_index(drop=True)
-    df_val = df.iloc[train_end:val_end].reset_index(drop=True)
-    df_test = df.iloc[val_end:].reset_index(drop=True)
+        print(f"Loading contiguous block from {fname}...")
+        df_part = pd.read_csv(
+            fpath, header=None, names=COLUMNS, nrows=per_file_sample, low_memory=False
+        )
+        df_part = preprocess_dataset(df_part)
+        df_part = sort_by_time(df_part, time_col="Stime")
+
+        n = len(df_part)
+        t_end = int(n * 0.70)
+        v_end = int(n * 0.85)
+        train_dfs.append(df_part.iloc[:t_end])
+        val_dfs.append(df_part.iloc[t_end:v_end])
+        test_dfs.append(df_part.iloc[v_end:])
+
+    df_train = pd.concat(train_dfs, ignore_index=True)
+    df_val = pd.concat(val_dfs, ignore_index=True)
+    df_test = pd.concat(test_dfs, ignore_index=True)
 
     preprocessor = build_preprocessor(scale_numerical=True, dense_output=True)
     X_train_2d = preprocessor.fit_transform(df_train)
     X_val_2d = preprocessor.transform(df_val)
     X_test_2d = preprocessor.transform(df_test)
 
-    y_train_1d = df_train["Label"].to_numpy()
-    y_val_1d = df_val["Label"].to_numpy()
-    y_test_1d = df_test["Label"].to_numpy()
-
     X_train_seq, y_train_seq = create_sequences(
-        X_train_2d, y_train_1d, sequence_length=sequence_length, stride=stride
+        X_train_2d, df_train["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
     )
     X_val_seq, y_val_seq = create_sequences(
-        X_val_2d, y_val_1d, sequence_length=sequence_length, stride=stride
+        X_val_2d, df_val["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
     )
     X_test_seq, y_test_seq = create_sequences(
-        X_test_2d, y_test_1d, sequence_length=sequence_length, stride=stride
+        X_test_2d, df_test["Label"].to_numpy(), sequence_length=sequence_length, stride=stride
     )
 
     elapsed = time.perf_counter() - start_time
@@ -160,7 +171,7 @@ def train_and_evaluate_sequence_model(
             epoch_loss += loss.item() * len(batch_x)
 
         avg_loss = epoch_loss / len(train_dataset)
-        print(f"Epoch {epoch}/{epochs} - Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch:02d}/{epochs} - Loss: {avg_loss:.4f}")
 
     training_time = time.perf_counter() - training_start
 
@@ -184,7 +195,8 @@ def train_and_evaluate_sequence_model(
 
 
 def run_experiments(
-    sample_size: int = SAMPLE_SIZE,
+    raw_dir: Path = DATA_DIR,
+    per_file_sample: int = PER_FILE_SAMPLE,
     epochs: int = EPOCHS,
 ):
     """Run Vanilla RNN and LSTM sequence experiments and save results."""
@@ -201,7 +213,7 @@ def run_experiments(
         y_val,
         X_test,
         y_test,
-    ) = prepare_sequence_data(sample_size=sample_size)
+    ) = prepare_sequence_data(raw_dir=raw_dir, per_file_sample=per_file_sample)
 
     results = []
     for model_name, model_type in [
@@ -238,7 +250,7 @@ def run_experiments(
     torch.save(
         {
             "model_type": best_model["model_type"],
-            "input_size": X_train.shape[2],
+            "input_size": int(X_train.shape[2]),
             "sequence_length": SEQUENCE_LENGTH,
             "state_dict": best_model["model"].state_dict(),
         },
@@ -248,13 +260,13 @@ def run_experiments(
 
     report = {
         "dataset": "UNSW-NB15",
-        "sample_size": sample_size,
+        "sample_size": per_file_sample * len(FILES),
         "sequence_length": SEQUENCE_LENGTH,
         "stride": STRIDE,
         "split": {
-            "training_sequences": len(X_train),
-            "validation_sequences": len(X_val),
-            "testing_sequences": len(X_test),
+            "training_sequences": int(len(X_train)),
+            "validation_sequences": int(len(X_val)),
+            "testing_sequences": int(len(X_test)),
         },
         "models": [
             {
