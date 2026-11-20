@@ -3,70 +3,75 @@
     "sample_size": 500000,
     "sequence_length": 10,
     "stride": 5,
+    "sequence_boundary_policy": "per_file_independent_no_cross_file_windows",
+    "sequence_labeling_rule": "attack (1) if at least one flow in window is an attack, else normal (0)",
     "split": {
-        "training_sequences": 69999,
-        "validation_sequences": 14999,
-        "testing_sequences": 14999
+        "training_sequences": 69996,
+        "validation_sequences": 14996,
+        "testing_sequences": 14996
     },
     "models": [
         {
             "model_name": "Vanilla RNN",
-            "training_time_seconds": 11.3562,
-            "prediction_time_seconds": 0.1151,
+            "best_epoch": 12,
+            "training_time_seconds": 16.4861,
+            "prediction_time_seconds": 0.1069,
+            "epoch_history": [
+                {"epoch": 1, "train_loss": 0.223162, "val_loss": 0.133823, "val_f1": 0.92085},
+                {"epoch": 2, "train_loss": 0.130956, "val_loss": 0.1122, "val_f1": 0.938564},
+                {"epoch": 3, "train_loss": 0.105359, "val_loss": 0.107978, "val_f1": 0.939763},
+                {"epoch": 4, "train_loss": 0.086638, "val_loss": 0.09683, "val_f1": 0.946673},
+                {"epoch": 5, "train_loss": 0.077765, "val_loss": 0.086806, "val_f1": 0.950924},
+                {"epoch": 6, "train_loss": 0.072759, "val_loss": 0.089316, "val_f1": 0.95079},
+                {"epoch": 7, "train_loss": 0.069663, "val_loss": 0.08899, "val_f1": 0.946797},
+                {"epoch": 8, "train_loss": 0.066132, "val_loss": 0.086807, "val_f1": 0.953309},
+                {"epoch": 9, "train_loss": 0.06302, "val_loss": 0.086322, "val_f1": 0.953838},
+                {"epoch": 10, "train_loss": 0.061298, "val_loss": 0.08449, "val_f1": 0.954132},
+                {"epoch": 11, "train_loss": 0.058509, "val_loss": 0.094076, "val_f1": 0.955243},
+                {"epoch": 12, "train_loss": 0.058347, "val_loss": 0.086851, "val_f1": 0.955781}
+            ],
             "validation_metrics": {
-                "accuracy": 0.9675978398559903,
-                "precision": 0.9485478666188598,
-                "recall": 0.9637522768670309,
-                "f1_score": 0.9560896277556921,
-                "confusion_matrix": [
-                    [
-                        9222,
-                        287
-                    ],
-                    [
-                        199,
-                        5291
-                    ]
-                ]
+                "accuracy": 0.9674579887970125,
+                "precision": 0.9506128334534968,
+                "recall": 0.9610058309037901,
+                "f1_score": 0.955781080101486,
+                "confusion_matrix": [[9234, 274], [214, 5274]]
             }
         },
         {
             "model_name": "LSTM",
-            "training_time_seconds": 12.7439,
-            "prediction_time_seconds": 0.136,
+            "best_epoch": 10,
+            "training_time_seconds": 15.0055,
+            "prediction_time_seconds": 0.1296,
+            "epoch_history": [
+                {"epoch": 1, "train_loss": 0.264376, "val_loss": 0.108437, "val_f1": 0.938707},
+                {"epoch": 2, "train_loss": 0.087582, "val_loss": 0.085797, "val_f1": 0.952202},
+                {"epoch": 3, "train_loss": 0.068406, "val_loss": 0.079674, "val_f1": 0.954916},
+                {"epoch": 4, "train_loss": 0.060876, "val_loss": 0.078464, "val_f1": 0.957892},
+                {"epoch": 5, "train_loss": 0.056987, "val_loss": 0.078981, "val_f1": 0.959569},
+                {"epoch": 6, "train_loss": 0.052972, "val_loss": 0.079793, "val_f1": 0.958236},
+                {"epoch": 7, "train_loss": 0.051185, "val_loss": 0.07956, "val_f1": 0.958139},
+                {"epoch": 8, "train_loss": 0.048427, "val_loss": 0.075273, "val_f1": 0.957927},
+                {"epoch": 9, "train_loss": 0.046501, "val_loss": 0.074966, "val_f1": 0.960217},
+                {"epoch": 10, "train_loss": 0.044882, "val_loss": 0.07297, "val_f1": 0.960985},
+                {"epoch": 11, "train_loss": 0.043506, "val_loss": 0.076978, "val_f1": 0.960222},
+                {"epoch": 12, "train_loss": 0.042746, "val_loss": 0.077732, "val_f1": 0.960627}
+            ],
             "validation_metrics": {
-                "accuracy": 0.9677978531902127,
-                "precision": 0.9626686379597117,
-                "recall": 0.948816029143898,
-                "f1_score": 0.9556921383359325,
-                "confusion_matrix": [
-                    [
-                        9307,
-                        202
-                    ],
-                    [
-                        281,
-                        5209
-                    ]
-                ]
+                "accuracy": 0.9712590024006402,
+                "precision": 0.954847994243569,
+                "recall": 0.967201166180758,
+                "f1_score": 0.9609848827736037,
+                "confusion_matrix": [[9257, 251], [180, 5308]]
             }
         }
     ],
-    "best_model": "Vanilla RNN",
+    "best_model": "LSTM",
     "test_metrics": {
-        "accuracy": 0.9779985332355491,
-        "precision": 0.9673973107386259,
-        "recall": 0.9716928769657724,
-        "f1_score": 0.9695403359793243,
-        "confusion_matrix": [
-            [
-                9417,
-                177
-            ],
-            [
-                153,
-                5252
-            ]
-        ]
+        "accuracy": 0.9816617764737263,
+        "precision": 0.9704641350210971,
+        "recall": 0.9789045151739453,
+        "f1_score": 0.9746660525103639,
+        "confusion_matrix": [[9431, 161], [114, 5290]]
     }
 }
