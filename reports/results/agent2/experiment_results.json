@@ -1,0 +1,72 @@
+﻿{
+    "dataset": "UNSW-NB15",
+    "sample_size": 500000,
+    "sequence_length": 10,
+    "stride": 5,
+    "split": {
+        "training_sequences": 69999,
+        "validation_sequences": 14999,
+        "testing_sequences": 14999
+    },
+    "models": [
+        {
+            "model_name": "Vanilla RNN",
+            "training_time_seconds": 11.3562,
+            "prediction_time_seconds": 0.1151,
+            "validation_metrics": {
+                "accuracy": 0.9675978398559903,
+                "precision": 0.9485478666188598,
+                "recall": 0.9637522768670309,
+                "f1_score": 0.9560896277556921,
+                "confusion_matrix": [
+                    [
+                        9222,
+                        287
+                    ],
+                    [
+                        199,
+                        5291
+                    ]
+                ]
+            }
+        },
+        {
+            "model_name": "LSTM",
+            "training_time_seconds": 12.7439,
+            "prediction_time_seconds": 0.136,
+            "validation_metrics": {
+                "accuracy": 0.9677978531902127,
+                "precision": 0.9626686379597117,
+                "recall": 0.948816029143898,
+                "f1_score": 0.9556921383359325,
+                "confusion_matrix": [
+                    [
+                        9307,
+                        202
+                    ],
+                    [
+                        281,
+                        5209
+                    ]
+                ]
+            }
+        }
+    ],
+    "best_model": "Vanilla RNN",
+    "test_metrics": {
+        "accuracy": 0.9779985332355491,
+        "precision": 0.9673973107386259,
+        "recall": 0.9716928769657724,
+        "f1_score": 0.9695403359793243,
+        "confusion_matrix": [
+            [
+                9417,
+                177
+            ],
+            [
+                153,
+                5252
+            ]
+        ]
+    }
+}
