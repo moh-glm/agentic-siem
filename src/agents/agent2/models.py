@@ -2,18 +2,18 @@
 Recurrent Neural Network (RNN & LSTM) architectures for Agent 2.
 
 Analyzes ordered sequences of network flows to detect temporal attack patterns.
-Includes checkpoint loading utilities for Coordinator / Agent 3 integration.
+Includes checkpoint & preprocessing pipeline loading utilities for Coordinator / Agent 3 integration.
 """
 
 from pathlib import Path
+from typing import Any
+import joblib
 import torch
 import torch.nn as nn
 
 
 class SequenceRNN(nn.Module):
-    """
-    Vanilla Recurrent Neural Network for sequence binary classification.
-    """
+    """Vanilla Recurrent Neural Network for sequence binary classification."""
 
     def __init__(
         self,
@@ -44,10 +44,7 @@ class SequenceRNN(nn.Module):
 
 
 class SequenceLSTM(nn.Module):
-    """
-    Long Short-Term Memory (LSTM) network for sequence binary classification.
-    Captures longer temporal dependencies in network traffic.
-    """
+    """Long Short-Term Memory (LSTM) network for sequence binary classification."""
 
     def __init__(
         self,
@@ -84,9 +81,7 @@ def build_rnn_model(
     num_layers: int = 2,
     dropout: float = 0.2,
 ) -> nn.Module:
-    """
-    Factory function to instantiate an RNN or LSTM model.
-    """
+    """Factory function to instantiate an RNN or LSTM model."""
     if input_size < 1:
         raise ValueError(f"input_size must be >= 1, got {input_size}.")
     normalized = model_type.strip().lower()
@@ -97,15 +92,57 @@ def build_rnn_model(
     raise ValueError(f"Unsupported model_type: {model_type}. Choose 'rnn' or 'lstm'.")
 
 
+def save_agent2_bundle(
+    checkpoint_path: str | Path,
+    model: nn.Module,
+    model_type: str,
+    input_size: int,
+    sequence_length: int,
+    preprocessor: Any | None = None,
+    threshold: float = 0.5,
+    best_epoch: int | None = None,
+) -> tuple[Path, Path | None]:
+    """
+    Save the trained PyTorch model checkpoint together with its fitted
+    preprocessing pipeline (saved alongside as a .joblib artifact).
+    """
+    ckpt_path = Path(checkpoint_path)
+    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+
+    preproc_path: Path | None = None
+    if preprocessor is not None:
+        preproc_path = ckpt_path.with_name(f"{ckpt_path.stem}_preprocessor.joblib")
+        joblib.dump(preprocessor, preproc_path)
+
+    torch.save(
+        {
+            "model_type": model_type,
+            "input_size": int(input_size),
+            "hidden_size": int(getattr(model, "hidden_size", 64)),
+            "num_layers": int(getattr(model, "num_layers", 2)),
+            "dropout": float(getattr(model, "dropout", 0.2)),
+            "sequence_length": int(sequence_length),
+            "threshold": float(threshold),
+            "best_epoch": int(best_epoch) if best_epoch is not None else None,
+            "preprocessor_filename": preproc_path.name if preproc_path else None,
+            "state_dict": model.state_dict(),
+        },
+        ckpt_path,
+    )
+    return ckpt_path, preproc_path
+
+
 def load_trained_sequence_model(
     checkpoint_path: str | Path,
+    preprocessor_path: str | Path | None = None,
     device: str | torch.device | None = None,
-) -> tuple[nn.Module, dict]:
+) -> tuple[nn.Module, dict, Any | None]:
     """
-    Load a trained SequenceRNN or SequenceLSTM checkpoint from disk.
+    Load a trained SequenceRNN or SequenceLSTM checkpoint and its fitted
+    preprocessing pipeline from disk.
 
     Returns:
-        (model, metadata) tuple with model set to eval() mode.
+        (model, metadata, preprocessor) tuple with model set to eval() mode.
     """
     path = Path(checkpoint_path)
     if not path.exists():
@@ -132,5 +169,19 @@ def load_trained_sequence_model(
     model.to(resolved_device)
     model.eval()
 
+    preprocessor = None
+    resolved_preproc_path: Path | None = None
+    if preprocessor_path is not None:
+        resolved_preproc_path = Path(preprocessor_path)
+    elif checkpoint.get("preprocessor_filename"):
+        candidate = path.with_name(checkpoint["preprocessor_filename"])
+        if candidate.exists():
+            resolved_preproc_path = candidate
+
+    if resolved_preproc_path is not None:
+        if not resolved_preproc_path.exists():
+            raise FileNotFoundError(f"Preprocessor artifact not found: {resolved_preproc_path}")
+        preprocessor = joblib.load(resolved_preproc_path)
+
     metadata = {k: v for k, v in checkpoint.items() if k != "state_dict"}
-    return model, metadata
+    return model, metadata, preprocessor
