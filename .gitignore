@@ -20,6 +20,7 @@ data/*
 !data/README.md
 
 # AI models
+*.joblib
 *.gguf
 *.safetensors
 *.pt

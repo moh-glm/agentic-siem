@@ -7,12 +7,14 @@ on a stratified sample of UNSW-NB15.
 
 import time
 import json
+import joblib
 import resource
 from pathlib import Path
 
 import pandas as pd
 
 from src.agents.agent1.sampling import sample_dataset
+from src.data.preprocess import get_feature_columns
 from src.agents.agent1.train import split_dataset, train_model
 from src.agents.agent1.models import (
     build_naive_bayes_model,
@@ -196,7 +198,49 @@ def run_experiments():
 
     print("\nBest model based on validation F1-score:")
     print(best_model["model_name"])
-        # Final evaluation on the untouched test set
+
+    # Save both trained models for Agent 1 inference.
+    models_dir = RESULTS_DIR / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    for result in results:
+        filename = (
+            "naive_bayes.joblib"
+            if result["model_name"] == "Gaussian Naive Bayes"
+            else "logistic_regression.joblib"
+        )
+
+        joblib.dump(
+            result["model"],
+            models_dir / filename,
+        )
+
+    print(f"\nTrained models saved to: {models_dir}")
+    # Save model metadata for inference.
+    metadata = {
+        "dataset": "UNSW-NB15",
+        "best_model": best_model["model_name"],
+        "models": {
+            result["model_name"]: {
+                "validation_f1": float(
+                    result["metrics"]["f1_score"]
+                )
+            }
+            for result in results
+        },
+        "feature_columns": get_feature_columns(),
+        "target_mapping": {
+            "0": "normal",
+            "1": "attack",
+        },
+    }
+
+    metadata_file = models_dir / "metadata.json"
+
+    with open(metadata_file, "w", encoding="utf-8") as file:
+        json.dump(metadata, file, indent=4)
+
+    print(f"Model metadata saved to: {metadata_file}")
     from src.agents.agent1.evaluation import evaluate_model
 
     print("\n" + "=" * 60)

@@ -4,7 +4,7 @@ import unittest
 from src.agents.base_agent import BaseAgent
 
 
-class TestAgent(BaseAgent):
+class ConcreteAgent(BaseAgent):
     """Concrete agent used only for testing."""
 
     def __init__(self):
@@ -26,11 +26,11 @@ class BaseAgentTests(unittest.TestCase):
             BaseAgent("incomplete_agent")
 
     def test_concrete_agent_can_be_instantiated(self):
-        agent = TestAgent()
+        agent = ConcreteAgent()
         self.assertEqual(agent.agent_name, "test_agent")
 
     def test_response_has_standard_structure(self):
-        agent = TestAgent()
+        agent = ConcreteAgent()
         result = agent.predict({"example": 1})
 
         self.assertEqual(result["agent"], "test_agent")
@@ -40,7 +40,7 @@ class BaseAgentTests(unittest.TestCase):
         self.assertEqual(result["confidence"], 0.95)
 
     def test_invalid_confidence_is_rejected(self):
-        agent = TestAgent()
+        agent = ConcreteAgent()
 
         with self.assertRaises(ValueError):
             agent.build_response(
