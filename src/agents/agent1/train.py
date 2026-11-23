@@ -1,15 +1,13 @@
 """
 Training utilities for Agent 1.
 """
-
+import numpy as np
 import pandas as pd
-from src.agents.agent1.evaluation import evaluate_model
-from sklearn.model_selection import train_test_split
 
+from src.agents.agent1.evaluation import evaluate_model
 from src.data.preprocess import get_feature_columns
 
 
-RANDOM_STATE = 42
 
 
 def split_dataset(
@@ -18,9 +16,9 @@ def split_dataset(
     validation_size: float = 0.15,
 ):
     """
-    Split the dataset into training, validation and test sets.
+    Deterministic group-aware split.
 
-    Uses stratification to preserve the normal/attack ratio.
+    Identical feature patterns always belong to the same split.
     """
 
     if "Label" not in df.columns:
@@ -37,31 +35,73 @@ def split_dataset(
             "test_size + validation_size must be less than 1"
         )
 
-    X = df[get_feature_columns()]
-    y = df["Label"]
+    X = df[get_feature_columns()].reset_index(drop=True)
+    y = df["Label"].reset_index(drop=True)
 
-    X_train, X_temp, y_train, y_temp = train_test_split(
+    if y.isna().any() or not y.isin([0, 1]).all():
+        raise ValueError("Label must contain only 0 and 1")
+
+    # Hash identical feature patterns to the same group.
+    hashes = pd.util.hash_pandas_object(
         X,
-        y,
-        test_size=test_size + validation_size,
-        random_state=RANDOM_STATE,
-        stratify=y,
+        index=False,
+    ).to_numpy(dtype=np.uint64)
+
+    # A feature group must never have conflicting labels.
+    groups = pd.DataFrame({
+        "feature_hash": hashes,
+        "label": y.to_numpy(),
+    })
+
+    if groups.groupby("feature_hash")["label"].nunique().gt(1).any():
+        raise ValueError(
+            "Identical feature groups have conflicting labels"
+        )
+
+    # Compare uint64 hashes against integer thresholds.
+    hash_space = 1 << 64
+
+    train_end = np.uint64(
+        int((1 - test_size - validation_size) * hash_space)
+    )
+    validation_end = np.uint64(
+        int((1 - test_size) * hash_space)
     )
 
-    relative_test_size = (
-        test_size / (test_size + validation_size)
+    train_mask = hashes < train_end
+
+    validation_mask = (
+        (hashes >= train_end)
+        & (hashes < validation_end)
     )
 
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp,
-        y_temp,
-        test_size=relative_test_size,
-        random_state=RANDOM_STATE,
-        stratify=y_temp,
+    test_mask = hashes >= validation_end
+
+    splits = [
+        ("Training", train_mask),
+        ("Validation", validation_mask),
+        ("Test", test_mask),
+    ]
+
+    for name, mask in splits:
+        target = y.loc[mask]
+
+        if target.empty:
+            raise ValueError(f"{name} split is empty")
+
+        if target.nunique() < 2:
+            raise ValueError(
+                f"{name} split must contain both classes"
+            )
+
+    return (
+        X.loc[train_mask],
+        X.loc[validation_mask],
+        X.loc[test_mask],
+        y.loc[train_mask],
+        y.loc[validation_mask],
+        y.loc[test_mask],
     )
-
-    return X_train, X_val, X_test, y_train, y_val, y_test
-
 def train_model(model, X_train, y_train, X_val, y_val):
     """
     Train a model and evaluate it on validation data.
@@ -69,12 +109,14 @@ def train_model(model, X_train, y_train, X_val, y_val):
     The preprocessing pipeline is fitted only on training data.
     """
 
-    print(f"\nTraining {model.named_steps['classifier'].__class__.__name__}...")
+    print(
+        f"\nTraining "
+        f"{model.named_steps['classifier'].__class__.__name__}..."
+    )
 
     model.fit(X_train, y_train)
 
     print("Training completed.")
-
     print("Evaluating on validation data...")
 
     validation_results = evaluate_model(
