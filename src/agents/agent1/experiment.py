@@ -45,6 +45,30 @@ TARGET_MAPPING = {
 }
 
 
+def make_json_serializable(value):
+    """Recursively convert metric values into JSON-compatible values."""
+
+    if isinstance(value, dict):
+        return {
+            str(key): make_json_serializable(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            make_json_serializable(item)
+            for item in value
+        ]
+
+    if hasattr(value, "tolist"):
+        return make_json_serializable(value.tolist())
+
+    if hasattr(value, "item"):
+        return value.item()
+
+    return value
+
+
 def prepare_experiment_data():
     """Sample UNSW-NB15 and create train, validation and test sets."""
 
@@ -251,7 +275,7 @@ def run_experiments():
     for metric, value in test_metrics.items():
         print(f"{metric}: {value}")
 
-    # Prepare output directory.
+    # Prepare output directories.
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -272,10 +296,7 @@ def run_experiments():
         "model_file": MODEL_FILE,
         "selection_metric": "validation_f1",
         "validation_f1": best_validation_f1,
-        "test_metrics": {
-            metric: float(value)
-            for metric, value in test_metrics.items()
-        },
+        "test_metrics": make_json_serializable(test_metrics),
         "sample_size": len(X_train) + len(X_val) + len(X_test),
         "split_sizes": {
             "training": len(X_train),
@@ -320,13 +341,15 @@ def run_experiments():
                 "prediction_time_seconds": result[
                     "prediction_time_seconds"
                 ],
-                "validation_metrics": result["metrics"],
+                "validation_metrics": make_json_serializable(
+                    result["metrics"]
+                ),
             }
             for result in results
         ],
         "best_model": best_model["model_name"],
         "selection_metric": "validation_f1",
-        "test_metrics": test_metrics,
+        "test_metrics": make_json_serializable(test_metrics),
     }
 
     output_file = RESULTS_DIR / REPORT_FILE
