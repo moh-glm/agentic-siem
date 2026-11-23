@@ -1,3 +1,4 @@
+
 import json
 import tempfile
 import unittest
@@ -6,11 +7,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from src.agents.agent1.agent import Agent1, MODEL_FILES
-from src.agents.agent1.models import (
-    build_naive_bayes_model,
-    build_logistic_regression_model,
-)
+from src.agents.agent1.agent import Agent1, MODEL_FILE
+from src.agents.agent1.models import build_logistic_regression_model
 from src.data.preprocess import get_feature_columns
 
 
@@ -22,7 +20,7 @@ class Agent1RuntimeTests(unittest.TestCase):
 
         self.feature_columns = get_feature_columns()
 
-        # Small synthetic training dataset.
+        # Create a small synthetic training dataset.
         rows = []
 
         for index in range(20):
@@ -47,25 +45,19 @@ class Agent1RuntimeTests(unittest.TestCase):
         X = pd.DataFrame(rows)
         y = pd.Series([0, 1] * 10)
 
-        self.models = {
-            "Gaussian Naive Bayes": build_naive_bayes_model(),
-            "Logistic Regression": build_logistic_regression_model(),
-        }
+        # Train and save only the selected model.
+        self.model = build_logistic_regression_model()
+        self.model.fit(X, y)
 
-        for model_name, model in self.models.items():
-            model.fit(X, y)
-            joblib.dump(
-                model,
-                self.models_dir / MODEL_FILES[model_name],
-            )
+        joblib.dump(
+            self.model,
+            self.models_dir / MODEL_FILE,
+        )
 
         metadata = {
             "dataset": "UNSW-NB15",
             "best_model": "Logistic Regression",
-            "models": {
-                "Gaussian Naive Bayes": {"validation_f1": 0.8},
-                "Logistic Regression": {"validation_f1": 0.9},
-            },
+            "validation_f1": 0.9,
             "feature_columns": self.feature_columns,
             "target_mapping": {
                 "0": "normal",
@@ -101,22 +93,7 @@ class Agent1RuntimeTests(unittest.TestCase):
         })
 
         return flow
-    def test_invalid_target_mapping_is_rejected(self):
-        metadata_path = self.models_dir / "metadata.json"
 
-        with metadata_path.open("r", encoding="utf-8") as file:
-            metadata = json.load(file)
-
-        metadata["target_mapping"] = {
-            "0": "attack",
-            "1": "normal",
-        }
-
-        with metadata_path.open("w", encoding="utf-8") as file:
-            json.dump(metadata, file)
-
-        with self.assertRaisesRegex(ValueError, "Invalid target mapping"):
-            Agent1(models_dir=self.models_dir)
     def test_valid_flow_returns_standard_response(self):
         result = self.agent.predict(self.make_flow())
 
@@ -131,11 +108,25 @@ class Agent1RuntimeTests(unittest.TestCase):
             result["prediction"],
         )
 
+        self.assertIn(
+            result["prediction"]["label"],
+            ["normal", "attack"],
+        )
+
+        self.assertIsNone(result["prediction"]["naive_bayes"])
+        self.assertIsNotNone(
+            result["prediction"]["logistic_regression"]
+        )
+
         self.assertIsInstance(result["confidence"], float)
         self.assertGreaterEqual(result["confidence"], 0.0)
         self.assertLessEqual(result["confidence"], 1.0)
 
-        self.assertIn("agreement", result["evidence"])
+        self.assertIsNone(result["evidence"]["agreement"])
+        self.assertEqual(
+            result["evidence"]["selected_model"],
+            "Logistic Regression",
+        )
 
     def test_missing_feature_returns_error(self):
         flow = self.make_flow()
@@ -145,7 +136,10 @@ class Agent1RuntimeTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertIsNone(result["prediction"])
-        self.assertIn("Missing required features", result["evidence"]["error"])
+        self.assertIn(
+            "Missing required features",
+            result["evidence"]["error"],
+        )
 
     def test_invalid_input_returns_error(self):
         result = self.agent.predict("invalid input")
@@ -166,6 +160,45 @@ class Agent1RuntimeTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["input_id"], input_id)
+
+    def test_invalid_target_mapping_is_rejected(self):
+        metadata_path = self.models_dir / "metadata.json"
+
+        with metadata_path.open("r", encoding="utf-8") as file:
+            metadata = json.load(file)
+
+        metadata["target_mapping"] = {
+            "0": "attack",
+            "1": "normal",
+        }
+
+        with metadata_path.open("w", encoding="utf-8") as file:
+            json.dump(metadata, file)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Invalid target mapping",
+        ):
+            Agent1(models_dir=self.models_dir)
+
+    def test_model_type_mismatch_is_rejected(self):
+        metadata_path = self.models_dir / "metadata.json"
+
+        with metadata_path.open("r", encoding="utf-8") as file:
+            metadata = json.load(file)
+
+        # The saved model is Logistic Regression,
+        # but metadata incorrectly declares Gaussian Naive Bayes.
+        metadata["best_model"] = "Gaussian Naive Bayes"
+
+        with metadata_path.open("w", encoding="utf-8") as file:
+            json.dump(metadata, file)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "Metadata expects GaussianNB",
+        ):
+            Agent1(models_dir=self.models_dir)
 
 
 if __name__ == "__main__":

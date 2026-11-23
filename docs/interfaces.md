@@ -1,14 +1,15 @@
+
 # Agent Communication Interfaces
 
 ## 1. Purpose
 
 This document defines the communication contracts between the three agents of the Agentic SIEM project.
 
-All agents must return a consistent output structure so that the orchestrator can process their results.
+All agents return a consistent output structure so that the orchestrator can process their results.
 
 ## 2. Common Agent Output
 
-Every agent must return a Python dictionary following this structure:
+Every agent returns a Python dictionary following this structure:
 
 ```python
 {
@@ -30,11 +31,17 @@ Every agent must return a Python dictionary following this structure:
 - `confidence`: Confidence score between 0.0 and 1.0, when available.
 - `evidence`: Additional information supporting the prediction.
 
+When processing fails, agents return `status = "error"`, with `prediction` and `confidence` set to `None` and the error description included in `evidence`.
+
 ## 3. Agent 1 — Fast Detection
 
-**Models:** Naive Bayes and Logistic Regression.
+**Models:** Gaussian Naive Bayes and Logistic Regression.
 
-**Input:** A preprocessed network flow containing the required dataset features.
+**Selection strategy:** Both models are evaluated during experimentation. The model with the best validation F1-score is selected and saved. Only this selected model is loaded and executed during runtime.
+
+**Input:** One network flow containing all required Agent 1 features.
+
+The input can be provided as a dictionary or a single-row pandas DataFrame.
 
 **Output example:**
 
@@ -45,17 +52,28 @@ Every agent must return a Python dictionary following this structure:
     "input_id": "flow_001",
     "prediction": {
         "label": "attack",
-        "naive_bayes": "attack",
+        "naive_bayes": None,
         "logistic_regression": "attack"
     },
     "confidence": 0.94,
     "evidence": {
-        "agreement": True
+        "agreement": None,
+        "selected_model": "Logistic Regression"
     }
 }
 ```
 
-The agent performs fast classification of individual network flows.
+### Prediction fields
+
+- `label`: Final classification (`normal` or `attack`).
+- `naive_bayes`: Prediction from Gaussian Naive Bayes when it is the selected model; otherwise `None`.
+- `logistic_regression`: Prediction from Logistic Regression when it is the selected model; otherwise `None`.
+- `selected_model`: Name of the model selected during validation.
+- `agreement`: `None`, because only one selected model executes during runtime.
+
+**Important:** The confidence value is the selected model's predicted class probability. It is not necessarily a calibrated probability of correctness.
+
+Agent 1 performs fast binary classification of individual network flows.
 
 ## 4. Agent 2 — Sequence Analysis
 
@@ -137,3 +155,4 @@ The orchestrator coordinates the agents:
 - Errors must be reported using `status = "error"`.
 - Agents must not directly depend on another agent's internal implementation.
 - The orchestrator is responsible for communication and coordination.
+- Agent 1 executes only its selected best model during runtime; consumers must not assume both model predictions are available.

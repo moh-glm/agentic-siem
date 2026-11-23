@@ -1,43 +1,52 @@
+
 """
 Real-data experiments for Agent 1.
 
 Compares Gaussian Naive Bayes and Logistic Regression
 on a stratified sample of UNSW-NB15.
+
+The best model is selected using validation F1-score.
+The untouched test set is used only for final evaluation.
 """
 
-import time
 import json
-import joblib
-import resource
+import time
 from pathlib import Path
 
-import pandas as pd
+import joblib
 
 from src.agents.agent1.sampling import sample_dataset
-from src.data.preprocess import get_feature_columns
-from src.agents.agent1.train import split_dataset, train_model
+from src.agents.agent1.train import split_dataset
 from src.agents.agent1.models import (
     build_naive_bayes_model,
     build_logistic_regression_model,
 )
+from src.agents.agent1.evaluation import evaluate_model
+from src.data.preprocess import get_feature_columns
 
 
 # Experiment configuration
 
 SAMPLE_SIZE = 500_000
 CHUNKSIZE = 100_000
-RANDOM_STATE = 42
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 RESULTS_DIR = PROJECT_ROOT / "reports" / "results" / "agent1"
+MODELS_DIR = RESULTS_DIR / "models"
 
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_FILE = "best_model.pkl"
+METADATA_FILE = "metadata.json"
+REPORT_FILE = "experiment_results.json"
+
+TARGET_MAPPING = {
+    "0": "normal",
+    "1": "attack",
+}
+
+
 def prepare_experiment_data():
-    """
-    Sample UNSW-NB15 and split it into training,
-    validation and testing sets.
-    """
+    """Sample UNSW-NB15 and create train, validation and test sets."""
 
     print("=" * 60)
     print("AGENT 1 — DATA PREPARATION")
@@ -50,15 +59,29 @@ def prepare_experiment_data():
         chunksize=CHUNKSIZE,
     )
 
+    if df.empty:
+        raise ValueError("The sampled dataset is empty.")
+
     print("\nSplitting dataset...")
 
-    X_train, X_val, X_test, y_train, y_val, y_test = (
-        split_dataset(
-            df,
-            test_size=0.15,
-            validation_size=0.15,
-        )
+    (
+        X_train,
+        X_val,
+        X_test,
+        y_train,
+        y_val,
+        y_test,
+    ) = split_dataset(
+        df,
+        test_size=0.15,
+        validation_size=0.15,
     )
+
+    if any(
+        len(split) == 0
+        for split in (X_train, X_val, X_test)
+    ):
+        raise ValueError("One or more dataset splits are empty.")
 
     print("\nDataset split completed.")
 
@@ -86,17 +109,30 @@ def prepare_experiment_data():
 
     print(f"\nPreparation time: {elapsed:.2f} seconds")
 
-    return X_train, X_val, X_test, y_train, y_val, y_test
-def run_model_experiment(model_name, model, X_train, y_train, X_val, y_val):
-    """
-    Train and evaluate one model on the validation set.
-    """
+    return (
+        X_train,
+        X_val,
+        X_test,
+        y_train,
+        y_val,
+        y_test,
+    )
+
+
+def run_model_experiment(
+    model_name,
+    model,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+):
+    """Train one model and evaluate it on the validation set."""
 
     print("\n" + "=" * 60)
     print(f"MODEL: {model_name}")
     print("=" * 60)
 
-    # Measure training time
     training_start = time.perf_counter()
 
     model.fit(X_train, y_train)
@@ -105,7 +141,6 @@ def run_model_experiment(model_name, model, X_train, y_train, X_val, y_val):
 
     print(f"Training time: {training_time:.2f} seconds")
 
-    # Measure prediction time
     prediction_start = time.perf_counter()
 
     predictions = model.predict(X_val)
@@ -114,15 +149,12 @@ def run_model_experiment(model_name, model, X_train, y_train, X_val, y_val):
 
     print(f"Prediction time: {prediction_time:.2f} seconds")
 
-    # Evaluate the model
-    from src.agents.agent1.evaluation import evaluate_model
-
     metrics = evaluate_model(
-    model,
-    X_val,
-    y_val,
-    predictions=predictions,
-)
+        model,
+        X_val,
+        y_val,
+        predictions=predictions,
+    )
 
     print("\nValidation metrics:")
 
@@ -136,9 +168,12 @@ def run_model_experiment(model_name, model, X_train, y_train, X_val, y_val):
         "metrics": metrics,
         "model": model,
     }
+
+
 def run_experiments():
     """
-    Run Gaussian Naive Bayes and Logistic Regression experiments.
+    Train both models, select the best using validation F1,
+    evaluate it on the untouched test set, and save its artifact.
     """
 
     (
@@ -152,35 +187,29 @@ def run_experiments():
 
     results = []
 
-    # Experiment 1: Gaussian Naive Bayes
-    naive_bayes = build_naive_bayes_model()
+    models = [
+        (
+            "Gaussian Naive Bayes",
+            build_naive_bayes_model(),
+        ),
+        (
+            "Logistic Regression",
+            build_logistic_regression_model(),
+        ),
+    ]
 
-    nb_results = run_model_experiment(
-        "Gaussian Naive Bayes",
-        naive_bayes,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-    )
+    for model_name, model in models:
+        result = run_model_experiment(
+            model_name,
+            model,
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+        )
 
-    results.append(nb_results)
+        results.append(result)
 
-    # Experiment 2: Logistic Regression
-    logistic_regression = build_logistic_regression_model()
-
-    lr_results = run_model_experiment(
-        "Logistic Regression",
-        logistic_regression,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-    )
-
-    results.append(lr_results)
-
-    # Compare validation F1-scores
     print("\n" + "=" * 60)
     print("MODEL COMPARISON")
     print("=" * 60)
@@ -196,53 +225,14 @@ def run_experiments():
         key=lambda result: result["metrics"]["f1_score"],
     )
 
+    best_validation_f1 = float(
+        best_model["metrics"]["f1_score"]
+    )
+
     print("\nBest model based on validation F1-score:")
     print(best_model["model_name"])
 
-    # Save both trained models for Agent 1 inference.
-    models_dir = RESULTS_DIR / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-
-    for result in results:
-        filename = (
-            "naive_bayes.joblib"
-            if result["model_name"] == "Gaussian Naive Bayes"
-            else "logistic_regression.joblib"
-        )
-
-        joblib.dump(
-            result["model"],
-            models_dir / filename,
-        )
-
-    print(f"\nTrained models saved to: {models_dir}")
-    # Save model metadata for inference.
-    metadata = {
-        "dataset": "UNSW-NB15",
-        "best_model": best_model["model_name"],
-        "models": {
-            result["model_name"]: {
-                "validation_f1": float(
-                    result["metrics"]["f1_score"]
-                )
-            }
-            for result in results
-        },
-        "feature_columns": get_feature_columns(),
-        "target_mapping": {
-            "0": "normal",
-            "1": "attack",
-        },
-    }
-
-    metadata_file = models_dir / "metadata.json"
-
-    with open(metadata_file, "w", encoding="utf-8") as file:
-        json.dump(metadata, file, indent=4)
-
-    print(f"Model metadata saved to: {metadata_file}")
-    from src.agents.agent1.evaluation import evaluate_model
-
+    # Final evaluation on the untouched test set.
     print("\n" + "=" * 60)
     print("FINAL TEST EVALUATION")
     print("=" * 60)
@@ -256,13 +246,66 @@ def run_experiments():
         predictions=test_predictions,
     )
 
+    print("\nTest metrics:")
+
     for metric, value in test_metrics.items():
         print(f"{metric}: {value}")
 
-    # Save complete experiment results
+    # Prepare output directory.
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Save only the selected model.
+    model_path = MODELS_DIR / MODEL_FILE
+
+    joblib.dump(
+        best_model["model"],
+        model_path,
+    )
+
+    print(f"\nBest model saved to: {model_path}")
+
+    # Save metadata required by Agent1 runtime.
+    metadata = {
+        "dataset": "UNSW-NB15",
+        "best_model": best_model["model_name"],
+        "model_file": MODEL_FILE,
+        "selection_metric": "validation_f1",
+        "validation_f1": best_validation_f1,
+        "test_metrics": {
+            metric: float(value)
+            for metric, value in test_metrics.items()
+        },
+        "sample_size": len(X_train) + len(X_val) + len(X_test),
+        "split_sizes": {
+            "training": len(X_train),
+            "validation": len(X_val),
+            "testing": len(X_test),
+        },
+        "models": {
+            result["model_name"]: {
+                "validation_f1": float(
+                    result["metrics"]["f1_score"]
+                )
+            }
+            for result in results
+        },
+        "feature_count": len(get_feature_columns()),
+        "feature_columns": get_feature_columns(),
+        "target_mapping": TARGET_MAPPING,
+    }
+
+    metadata_file = MODELS_DIR / METADATA_FILE
+
+    with metadata_file.open("w", encoding="utf-8") as file:
+        json.dump(metadata, file, indent=4)
+
+    print(f"Model metadata saved to: {metadata_file}")
+
+    # Save complete experiment results.
     report = {
         "dataset": "UNSW-NB15",
-        "sample_size": SAMPLE_SIZE,
+        "sample_size": len(X_train) + len(X_val) + len(X_test),
         "split": {
             "training": len(X_train),
             "validation": len(X_val),
@@ -271,22 +314,28 @@ def run_experiments():
         "models": [
             {
                 "model_name": result["model_name"],
-                "training_time_seconds": result["training_time_seconds"],
-                "prediction_time_seconds": result["prediction_time_seconds"],
+                "training_time_seconds": result[
+                    "training_time_seconds"
+                ],
+                "prediction_time_seconds": result[
+                    "prediction_time_seconds"
+                ],
                 "validation_metrics": result["metrics"],
             }
             for result in results
         ],
         "best_model": best_model["model_name"],
+        "selection_metric": "validation_f1",
         "test_metrics": test_metrics,
     }
 
-    output_file = RESULTS_DIR / "experiment_results.json"
+    output_file = RESULTS_DIR / REPORT_FILE
 
-    with open(output_file, "w", encoding="utf-8") as file:
+    with output_file.open("w", encoding="utf-8") as file:
         json.dump(report, file, indent=4)
 
     print(f"\nResults saved to: {output_file}")
+
     return results, best_model, (X_test, y_test)
 
 

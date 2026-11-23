@@ -3,10 +3,11 @@
 Runtime interface for Agent 1.
 
 Agent 1 classifies individual network flows using
-Gaussian Naive Bayes and Logistic Regression.
+the best model selected during validation.
 """
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -27,25 +28,29 @@ DEFAULT_MODELS_DIR = (
     PROJECT_ROOT / "reports" / "results" / "agent1" / "models"
 )
 
-MODEL_FILES = {
-    "Gaussian Naive Bayes": "naive_bayes.joblib",
-    "Logistic Regression": "logistic_regression.joblib",
-}
+MODEL_FILE = "best_model.pkl"
 
 EXPECTED_TARGET_MAPPING = {
     "0": "normal",
     "1": "attack",
 }
 
+SUPPORTED_MODELS = {
+    "Gaussian Naive Bayes",
+    "Logistic Regression",
+}
+
 
 class Agent1(BaseAgent):
     """Fast binary classification agent for network flows."""
 
-    def __init__(self, models_dir: Path | str = DEFAULT_MODELS_DIR):
+    def __init__(
+        self,
+        models_dir: Path | str = DEFAULT_MODELS_DIR,
+    ):
         super().__init__("agent_1")
 
         self.models_dir = Path(models_dir)
-
         metadata_path = self.models_dir / "metadata.json"
 
         if not metadata_path.is_file():
@@ -54,11 +59,33 @@ class Agent1(BaseAgent):
                 "Run the Agent 1 experiment first."
             )
 
-        with metadata_path.open("r", encoding="utf-8") as file:
-            self.metadata = json.load(file)
+        try:
+            with metadata_path.open("r", encoding="utf-8") as file:
+                self.metadata = json.load(file)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise ValueError(
+                f"Invalid Agent 1 metadata file: {error}"
+            ) from error
+
+        if not isinstance(self.metadata, dict):
+            raise ValueError("Agent 1 metadata must be a JSON object.")
 
         self.feature_columns = self.metadata.get("feature_columns")
         self.best_model_name = self.metadata.get("best_model")
+        self.target_mapping = self.metadata.get("target_mapping")
+
+        if (
+            not isinstance(self.feature_columns, list)
+            or not self.feature_columns
+            or not all(
+                isinstance(column, str) and column
+                for column in self.feature_columns
+            )
+            or len(self.feature_columns) != len(set(self.feature_columns))
+        ):
+            raise ValueError(
+                "Metadata must contain a valid, unique feature_columns list."
+            )
 
         if self.feature_columns != get_feature_columns():
             raise ValueError(
@@ -66,33 +93,97 @@ class Agent1(BaseAgent):
                 "dataset feature definition."
             )
 
-        self.target_mapping = self.metadata.get("target_mapping")
-
         if self.target_mapping != EXPECTED_TARGET_MAPPING:
             raise ValueError(
-                "Invalid target mapping in Agent 1 metadata. "
-                "Expected normal=0 and attack=1."
+                "Invalid target mapping. Expected normal=0 "
+                "and attack=1."
             )
 
-        if self.best_model_name not in MODEL_FILES:
+        if self.best_model_name not in SUPPORTED_MODELS:
             raise ValueError(
                 f"Unsupported best model: {self.best_model_name}"
             )
 
-        self.models = {}
+        model_path = self.models_dir / MODEL_FILE
 
-        for model_name, filename in MODEL_FILES.items():
-            model_path = self.models_dir / filename
+        if not model_path.is_file():
+            raise FileNotFoundError(
+                f"Trained model not found: {model_path}. "
+                "Run the Agent 1 experiment first."
+            )
 
-            if not model_path.is_file():
-                raise FileNotFoundError(
-                    f"Trained model not found: {model_path}"
-                )
+        try:
+            self.model = joblib.load(model_path)
+        except Exception as error:
+            raise ValueError(
+                f"Could not load Agent 1 model: {error}"
+            ) from error
 
-            self.models[model_name] = joblib.load(model_path)
+        if not all(
+            callable(getattr(self.model, attribute, None))
+            for attribute in ("predict", "predict_proba")
+        ):
+            raise TypeError(
+                "Loaded model must support predict() and predict_proba()."
+            )
+
+        if not hasattr(self.model, "classes_"):
+            raise TypeError(
+                "Loaded model does not expose fitted classes_."
+            )
+
+        if set(self.model.classes_) != {0, 1}:
+            raise ValueError(
+                "Loaded model must support both classes 0 and 1."
+            )
+
+        if not hasattr(self.model, "named_steps"):
+            raise TypeError(
+                "Loaded model must be a scikit-learn Pipeline."
+            )
+
+        classifier = self.model.named_steps.get("classifier")
+
+        if classifier is None:
+            raise TypeError(
+                "Loaded model Pipeline has no classifier step."
+            )
+
+        expected_classifiers = {
+            "Gaussian Naive Bayes": "GaussianNB",
+            "Logistic Regression": "LogisticRegression",
+        }
+
+        expected_classifier = expected_classifiers[
+            self.best_model_name
+        ]
+
+        if classifier.__class__.__name__ != expected_classifier:
+            raise TypeError(
+                f"Metadata expects {expected_classifier}, "
+                f"but loaded model contains "
+                f"{classifier.__class__.__name__}."
+            )
+
+        model_feature_count = getattr(
+            self.model,
+            "n_features_in_",
+            None,
+        )
+
+        if (
+            model_feature_count is not None
+            and model_feature_count != len(self.feature_columns)
+        ):
+            raise ValueError(
+                "Loaded model feature count does not match metadata."
+            )
 
     @staticmethod
-    def _error_response(input_id: str, message: str) -> dict:
+    def _error_response(
+        input_id: str,
+        message: str,
+    ) -> dict:
         """Build a standardized error response."""
 
         return {
@@ -106,13 +197,21 @@ class Agent1(BaseAgent):
             },
         }
 
-    def _prepare_input(self, data: Any) -> tuple[str, pd.DataFrame]:
+    def _prepare_input(
+        self,
+        data: Any,
+    ) -> tuple[str, pd.DataFrame]:
         """Validate and preprocess one network flow."""
 
         if isinstance(data, pd.DataFrame):
             if len(data) != 1:
                 raise ValueError(
                     "Agent 1 expects exactly one network flow."
+                )
+
+            if data.columns.duplicated().any():
+                raise ValueError(
+                    "Input contains duplicate feature columns."
                 )
 
             input_id = str(data.index[0])
@@ -153,23 +252,72 @@ class Agent1(BaseAgent):
         return input_id, flow
 
     @staticmethod
-    def _classify(model, flow: pd.DataFrame) -> tuple[int, float]:
-        """Return predicted class and its probability."""
+    def _classify(
+        model: Any,
+        flow: pd.DataFrame,
+    ) -> tuple[int, float]:
+        """Return a validated prediction and its class probability."""
 
-        prediction = int(model.predict(flow)[0])
+        predictions = model.predict(flow)
 
-        probabilities = model.predict_proba(flow)[0]
+        if len(predictions) != 1:
+            raise ValueError(
+                "Model must return exactly one prediction."
+            )
+
+        prediction = int(predictions[0])
+
+        if prediction not in (0, 1):
+            raise ValueError(
+                f"Invalid predicted class: {prediction}"
+            )
 
         classes = list(model.classes_)
 
-        if prediction not in classes:
+        if set(classes) != {0, 1}:
             raise ValueError(
-                f"Predicted class {prediction} is not in model classes."
+                "Model classes must contain exactly 0 and 1."
             )
 
-        confidence = float(
-            probabilities[classes.index(prediction)]
-        )
+        probabilities = model.predict_proba(flow)
+
+        if len(probabilities) != 1:
+            raise ValueError(
+                "Model must return probabilities for exactly one flow."
+            )
+
+        probabilities = probabilities[0]
+
+        if len(probabilities) != len(classes):
+            raise ValueError(
+                "Probability count does not match model classes."
+            )
+
+        probabilities = [
+            float(probability)
+            for probability in probabilities
+        ]
+
+        if not all(
+            math.isfinite(probability)
+            and 0.0 <= probability <= 1.0
+            for probability in probabilities
+        ):
+            raise ValueError(
+                "Model returned invalid probabilities."
+            )
+
+        if not math.isclose(
+            sum(probabilities),
+            1.0,
+            rel_tol=1e-5,
+            abs_tol=1e-5,
+        ):
+            raise ValueError(
+                "Model probabilities must sum to 1."
+            )
+
+        confidence = probabilities[classes.index(prediction)]
 
         return prediction, confidence
 
@@ -187,29 +335,32 @@ class Agent1(BaseAgent):
         try:
             input_id, flow = self._prepare_input(data)
 
-            predictions = {}
+            best_prediction, confidence = self._classify(
+                self.model,
+                flow,
+            )
 
-            for model_name, model in self.models.items():
-                predictions[model_name] = self._classify(
-                    model,
-                    flow,
-                )
-
-            nb_prediction = predictions["Gaussian Naive Bayes"][0]
-            lr_prediction = predictions["Logistic Regression"][0]
-
-            best_prediction, confidence = predictions[
-                self.best_model_name
+            selected_label = self.target_mapping[
+                str(best_prediction)
             ]
 
             prediction = {
-                "label": self.target_mapping[str(best_prediction)],
-                "naive_bayes": self.target_mapping[str(nb_prediction)],
-                "logistic_regression": self.target_mapping[str(lr_prediction)],
+                "label": selected_label,
+                "naive_bayes": (
+                    selected_label
+                    if self.best_model_name == "Gaussian Naive Bayes"
+                    else None
+                ),
+                "logistic_regression": (
+                    selected_label
+                    if self.best_model_name == "Logistic Regression"
+                    else None
+                ),
             }
 
             evidence = {
-                "agreement": nb_prediction == lr_prediction,
+                "agreement": None,
+                "selected_model": self.best_model_name,
             }
 
             return self.build_response(
