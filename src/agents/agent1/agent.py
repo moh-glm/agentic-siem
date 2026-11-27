@@ -98,7 +98,36 @@ class Agent1(BaseAgent):
                 "Invalid target mapping. Expected normal=0 "
                 "and attack=1."
             )
+                      # Validate metadata integrity.
+        if self.metadata.get("dataset") != "UNSW-NB15":
+            raise ValueError("Invalid or missing dataset metadata.")
 
+        if self.metadata.get("model_file") != MODEL_FILE:
+            raise ValueError("Invalid or missing model_file metadata.")
+
+        if self.metadata.get("selection_metric") != "validation_f1":
+            raise ValueError("Invalid or missing selection_metric metadata.")
+
+        feature_count = self.metadata.get("feature_count")
+
+        if (
+            not isinstance(feature_count, int)
+            or isinstance(feature_count, bool)
+            or feature_count != len(self.feature_columns)
+        ):
+            raise ValueError(
+                "Metadata feature_count does not match feature_columns."
+            )
+
+        validation_f1 = self.metadata.get("validation_f1")
+
+        if (
+            isinstance(validation_f1, bool)
+            or not isinstance(validation_f1, (int, float))
+            or not math.isfinite(validation_f1)
+            or not 0.0 <= validation_f1 <= 1.0
+        ):
+            raise ValueError("Invalid validation_f1 metadata.")
         if self.best_model_name not in SUPPORTED_MODELS:
             raise ValueError(
                 f"Unsupported best model: {self.best_model_name}"

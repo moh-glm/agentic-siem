@@ -161,24 +161,84 @@ Confusion matrix:
 | Attack | 12 | 9,602 |
 
 The model detected 9,602 of the 9,614 attack records in the test split, while missing 12 attacks.
+## 8. Chronological Evaluation
 
-## 8. Evaluation Limitations
+To evaluate performance under a time-ordered split, a second experiment
+was conducted using the complete processed UNSW-NB15 dataset (2,540,047
+flows).
 
-The group-aware split prevents identical model-input feature patterns from appearing across different splits. This addresses one source of potential evaluation leakage.
+Records were sorted chronologically by `Stime`. Unique timestamps were
+kept together when creating the 70% training, 15% validation, and 15%
+testing splits.
+
+### Chronological Split
+
+| Split | Records | Attack Rate |
+|---|---:|---:|
+| Training | 1,591,733 | 7.32% |
+| Validation | 482,230 | 23.60% |
+| Testing | 466,084 | 19.51% |
+
+### Model Selection
+
+Models were compared using validation F1-score. Logistic Regression
+was selected, achieving a validation F1-score of 96.49%, compared
+with 66.17% for Gaussian Naive Bayes.
+
+### Chronological Test Results — Logistic Regression
+
+| Metric | Result |
+|---|---:|
+| Accuracy | 98.09% |
+| Precision | 91.14% |
+| Recall | 99.92% |
+| F1-score | 95.33% |
+| Specificity | 97.65% |
+| False Positive Rate | 2.35% |
+| False Negative Rate | 0.077% |
+| ROC AUC | 0.9988 |
+| Average Precision | 0.9939 |
+| Throughput | 601,008 flows/second |
+
+Confusion matrix:
+
+| Actual / Predicted | Normal | Attack |
+|---|---:|---:|
+| Normal | 366,343 | 8,828 |
+| Attack | 70 | 90,843 |
+
+The chronological test contains 90,913 attack flows. The model detected
+90,843 and missed 70.
+
+The attack rate differs substantially across the chronological splits.
+This distribution shift is important when interpreting the results.
+Despite this shift, Logistic Regression maintained a test F1-score of
+95.33%.
+
+The detailed experiment is stored in
+`reports/results/agent1/temporal/temporal_results.json`
+## 9. Evaluation Limitations
+
+The group-aware split prevents identical model-input feature patterns
+from appearing across different splits. The chronological experiment
+provides an additional evaluation using time-ordered records.
 
 However, several limitations remain:
 
-- The experiment uses a 500,000-record sample rather than the entire dataset.
-- Identical feature patterns are not necessarily identical real-world network events.
-- Hash-based grouping does not guarantee separation by host, time period, network, or attack campaign.
-- The evaluation does not establish performance on future traffic or unseen networks.
-- The results depend on the UNSW-NB15 dataset and its sampling characteristics.
-- Precision, recall, F1-score, and confusion matrix should be considered alongside accuracy.
+- The group-aware experiment uses a 500,000-record sample rather than
+  the entire dataset.
+- Identical feature patterns are not necessarily identical real-world
+  network events.
+- Chronological separation does not guarantee separation by host,
+  network, or attack campaign.
+- The chronological split exhibits substantial changes in attack rate
+  between training, validation, and testing.
+- The results do not establish generalization to entirely unseen
+  networks or different intrusion datasets.
+- Performance depends on the UNSW-NB15 dataset and its characteristics.
 
-Further evaluation using temporal or network-based separation would provide stronger evidence of generalization.
-
-## 9. Important Features
-
+Precision, recall, F1-score, false positive rate, false negative rate,
+and confusion matrices should be considered alongside accuracy.
 - `Label`: binary target.
 - `attack_cat`: attack category, excluded from binary model inputs.
 - `proto`: network protocol.

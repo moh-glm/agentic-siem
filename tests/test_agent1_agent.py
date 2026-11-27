@@ -45,7 +45,7 @@ class Agent1RuntimeTests(unittest.TestCase):
         X = pd.DataFrame(rows)
         y = pd.Series([0, 1] * 10)
 
-        # Train and save only the selected model.
+        # Train and save the selected model.
         self.model = build_logistic_regression_model()
         self.model.fit(X, y)
 
@@ -57,7 +57,10 @@ class Agent1RuntimeTests(unittest.TestCase):
         metadata = {
             "dataset": "UNSW-NB15",
             "best_model": "Logistic Regression",
+            "model_file": MODEL_FILE,
+            "selection_metric": "validation_f1",
             "validation_f1": 0.9,
+            "feature_count": len(self.feature_columns),
             "feature_columns": self.feature_columns,
             "target_mapping": {
                 "0": "normal",
@@ -65,8 +68,9 @@ class Agent1RuntimeTests(unittest.TestCase):
             },
         }
 
-        with open(
-            self.models_dir / "metadata.json",
+        self.metadata_path = self.models_dir / "metadata.json"
+
+        with self.metadata_path.open(
             "w",
             encoding="utf-8",
         ) as file:
@@ -162,9 +166,10 @@ class Agent1RuntimeTests(unittest.TestCase):
         self.assertEqual(result["input_id"], input_id)
 
     def test_invalid_target_mapping_is_rejected(self):
-        metadata_path = self.models_dir / "metadata.json"
-
-        with metadata_path.open("r", encoding="utf-8") as file:
+        with self.metadata_path.open(
+            "r",
+            encoding="utf-8",
+        ) as file:
             metadata = json.load(file)
 
         metadata["target_mapping"] = {
@@ -172,7 +177,10 @@ class Agent1RuntimeTests(unittest.TestCase):
             "1": "normal",
         }
 
-        with metadata_path.open("w", encoding="utf-8") as file:
+        with self.metadata_path.open(
+            "w",
+            encoding="utf-8",
+        ) as file:
             json.dump(metadata, file)
 
         with self.assertRaisesRegex(
@@ -182,16 +190,20 @@ class Agent1RuntimeTests(unittest.TestCase):
             Agent1(models_dir=self.models_dir)
 
     def test_model_type_mismatch_is_rejected(self):
-        metadata_path = self.models_dir / "metadata.json"
-
-        with metadata_path.open("r", encoding="utf-8") as file:
+        with self.metadata_path.open(
+            "r",
+            encoding="utf-8",
+        ) as file:
             metadata = json.load(file)
 
         # The saved model is Logistic Regression,
         # but metadata incorrectly declares Gaussian Naive Bayes.
         metadata["best_model"] = "Gaussian Naive Bayes"
 
-        with metadata_path.open("w", encoding="utf-8") as file:
+        with self.metadata_path.open(
+            "w",
+            encoding="utf-8",
+        ) as file:
             json.dump(metadata, file)
 
         with self.assertRaisesRegex(
@@ -199,6 +211,89 @@ class Agent1RuntimeTests(unittest.TestCase):
             "Metadata expects GaussianNB",
         ):
             Agent1(models_dir=self.models_dir)
+
+    def test_invalid_metadata_fields_are_rejected(self):
+        with self.metadata_path.open(
+            "r",
+            encoding="utf-8",
+        ) as file:
+            original_metadata = json.load(file)
+
+        invalid_cases = [
+            ("dataset", "INVALID", "dataset metadata"),
+            ("model_file", "wrong.pkl", "model_file metadata"),
+            (
+                "selection_metric",
+                "accuracy",
+                "selection_metric metadata",
+            ),
+            ("feature_count", 999, "feature_count"),
+            ("validation_f1", 1.5, "validation_f1"),
+            ("validation_f1", float("nan"), "validation_f1"),
+        ]
+
+        for field, invalid_value, expected_error in invalid_cases:
+            with self.subTest(field=field, value=invalid_value):
+                metadata = original_metadata.copy()
+                metadata[field] = invalid_value
+
+                with self.metadata_path.open(
+                    "w",
+                    encoding="utf-8",
+                ) as file:
+                    json.dump(metadata, file)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    expected_error,
+                ):
+                    Agent1(models_dir=self.models_dir)
+
+        # Restore valid metadata.
+        with self.metadata_path.open(
+            "w",
+            encoding="utf-8",
+        ) as file:
+            json.dump(original_metadata, file)
+
+    def test_missing_metadata_fields_are_rejected(self):
+        with self.metadata_path.open(
+            "r",
+            encoding="utf-8",
+        ) as file:
+            original_metadata = json.load(file)
+
+        required_fields = [
+            "dataset",
+            "best_model",
+            "model_file",
+            "selection_metric",
+            "validation_f1",
+            "feature_count",
+            "feature_columns",
+            "target_mapping",
+        ]
+
+        for field in required_fields:
+            with self.subTest(field=field):
+                metadata = original_metadata.copy()
+                del metadata[field]
+
+                with self.metadata_path.open(
+                    "w",
+                    encoding="utf-8",
+                ) as file:
+                    json.dump(metadata, file)
+
+                with self.assertRaises(ValueError):
+                    Agent1(models_dir=self.models_dir)
+
+        # Restore valid metadata.
+        with self.metadata_path.open(
+            "w",
+            encoding="utf-8",
+        ) as file:
+            json.dump(original_metadata, file)
 
 
 if __name__ == "__main__":
