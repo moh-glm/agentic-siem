@@ -217,28 +217,24 @@ Despite this shift, Logistic Regression maintained a test F1-score of
 
 The detailed experiment is stored in
 `reports/results/agent1/temporal/temporal_results.json`
+
 ## 9. Evaluation Limitations
 
-The group-aware split prevents identical model-input feature patterns
-from appearing across different splits. The chronological experiment
-provides an additional evaluation using time-ordered records.
+The group-aware split prevents identical model-input feature patterns from appearing across different splits. The chronological experiment provides an additional evaluation using time-ordered records.
 
 However, several limitations remain:
 
-- The group-aware experiment uses a 500,000-record sample rather than
-  the entire dataset.
-- Identical feature patterns are not necessarily identical real-world
-  network events.
-- Chronological separation does not guarantee separation by host,
-  network, or attack campaign.
-- The chronological split exhibits substantial changes in attack rate
-  between training, validation, and testing.
-- The results do not establish generalization to entirely unseen
-  networks or different intrusion datasets.
+- The group-aware experiment uses a 500,000-record sample rather than the entire dataset.
+- Identical feature patterns are not necessarily identical real-world network events.
+- Chronological separation does not guarantee separation by host, network, or attack campaign.
+- The chronological split exhibits substantial changes in attack rate between training, validation, and testing.
+- The results do not establish generalization to entirely unseen networks or different intrusion datasets.
 - Performance depends on the UNSW-NB15 dataset and its characteristics.
 
-Precision, recall, F1-score, false positive rate, false negative rate,
-and confusion matrices should be considered alongside accuracy.
+Precision, recall, F1-score, false positive rate, false negative rate, and confusion matrices should be considered alongside accuracy.
+
+## 10. Important Features
+
 - `Label`: binary target.
 - `attack_cat`: attack category, excluded from binary model inputs.
 - `proto`: network protocol.
@@ -246,7 +242,7 @@ and confusion matrices should be considered alongside accuracy.
 - `dur`: flow duration.
 - `sbytes` / `dbytes`: bytes transferred in each direction.
 
-## 10. Current Status
+## 11. Current Status
 
 - [x] UNSW-NB15 dataset loaded and inspected.
 - [x] Data cleaning and preprocessing implemented.
@@ -257,4 +253,5 @@ and confusion matrices should be considered alongside accuracy.
 - [x] Gaussian Naive Bayes implemented.
 - [x] Logistic Regression implemented.
 - [x] Validation and final test evaluation completed.
+- [x] Chronological evaluation on the full processed dataset completed.
 - [x] Automated tests passing for the current implementation.
