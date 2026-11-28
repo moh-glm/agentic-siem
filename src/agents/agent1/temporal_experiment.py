@@ -9,6 +9,7 @@ The existing baseline model and reports are never overwritten.
 
 import gc
 import json
+import joblib
 import time
 from pathlib import Path
 
@@ -29,6 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 DATA_DIR = PROJECT_ROOT / "data" / "processed" / "unsw_nb15"
 OUTPUT_DIR = PROJECT_ROOT / "reports" / "results" / "agent1" / "temporal"
+TEMPORAL_MODELS_DIR = OUTPUT_DIR / "models"
 
 FILES = [
     "UNSW-NB15_1_processed.csv",
@@ -321,6 +323,29 @@ def run_temporal_experiment():
     print(f"\nTest throughput: {test_throughput['throughput_flows_per_second']:.2f} flows/second")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    TEMPORAL_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_path = TEMPORAL_MODELS_DIR / "best_model.pkl"
+    joblib.dump(best_model["model"], model_path)
+
+    metadata = {
+        "dataset": "UNSW-NB15",
+        "best_model": best_model["model_name"],
+        "model_file": "best_model.pkl",
+        "selection_metric": "validation_f1",
+        "validation_f1": float(best_model["metrics"]["f1_score"]),
+        "evaluation": "chronological",
+        "feature_count": len(feature_columns),
+        "feature_columns": feature_columns,
+        "target_mapping": {"0": "normal", "1": "attack"},
+    }
+
+    metadata_path = TEMPORAL_MODELS_DIR / "metadata.json"
+    with metadata_path.open("w", encoding="utf-8") as file:
+        json.dump(metadata, file, indent=4)
+
+    print(f"Temporal model saved to: {model_path}")
+    print(f"Temporal metadata saved to: {metadata_path}")
 
     report = {
         "dataset": "UNSW-NB15",
